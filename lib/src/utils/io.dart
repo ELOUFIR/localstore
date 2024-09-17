@@ -39,6 +39,8 @@ class Utils implements UtilsImpl {
       }
     } else if (Platform.isAndroid) {
       directory = await getApplicationDocumentsDirectory();
+    }  else if (Platform.isWindows) {
+      directory = await getApplicationSupportDirectory();
     } else {
       // Add other platform-specific directory as needed
       // throw UnsupportedError('This platform is not supported for databases.');
