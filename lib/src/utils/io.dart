@@ -209,22 +209,7 @@ class Utils implements UtilsImpl {
   }
 
   Future _writeFile(Map<String, dynamic> data, String path) async {
-    final serialized = json.encode(data);
-    final buffer = utf8.encode(serialized);
-    final file = await _getFile(path);
-    final randomAccessFile = file!.openSync(mode: FileMode.append);
-
-    randomAccessFile.lockSync();
-    randomAccessFile.setPositionSync(0);
-    randomAccessFile.writeFromSync(buffer);
-    randomAccessFile.truncateSync(buffer.length);
-    randomAccessFile.unlockSync();
-    randomAccessFile.closeSync();
-
-    final key = path.replaceAll(lastPathComponentRegEx, '');
-    // ignore: close_sinks
-    final storage = _storageCache.putIfAbsent(key, () => _newStream(key));
-    storage.add(data);
+    
   }
 
   Future _deleteFile(String path) async {
