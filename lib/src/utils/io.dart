@@ -81,7 +81,8 @@ class Utils implements UtilsImpl {
     entries.forEach((element) {
       String itemName = '$path$element';
       final String? itemJson = prefs?.getString(itemName);
-      items[itemName] = itemJson;
+      final Map<String, dynamic> itemMap = jsonDecode(itemJson!);
+      items[itemName] = itemMap;
     });
 
     if (items.isEmpty) return null;
