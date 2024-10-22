@@ -81,8 +81,10 @@ class Utils implements UtilsImpl {
     entries.forEach((element) {
       String itemName = '$path$element';
       final String? itemJson = prefs?.getString(itemName);
-      final Map<String, dynamic> itemMap = jsonDecode(itemJson!);
-      items[itemName] = itemMap;
+      if( itemJson != null ){
+        final Map<String, dynamic> itemMap = jsonDecode(itemJson!);
+        items[itemName] = itemMap;
+      }
     });
 
     if (items.isEmpty) return null;
@@ -98,9 +100,9 @@ class Utils implements UtilsImpl {
   }
 
   Future _initStream(
-    StreamController<Map<String, dynamic>> storage,
-    String path,
-  ) async {
+      StreamController<Map<String, dynamic>> storage,
+      String path,
+      ) async {
 
     print('_initStream ::: $path');
     prefs = await getSharedPreferences();
@@ -110,8 +112,10 @@ class Utils implements UtilsImpl {
       items.forEach((element) {
         String itemName = '$path$element';
         final String? itemJson = prefs?.getString(itemName);
-        final Map<String, dynamic> itemMap = jsonDecode(itemJson!);
-        storage.add(itemMap);
+        if( itemJson != null ){
+          final Map<String, dynamic> itemMap = jsonDecode(itemJson!);
+          storage.add(itemMap);
+        }
       });
     }
 
