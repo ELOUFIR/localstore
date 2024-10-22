@@ -2,8 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'utils_impl.dart';
 
@@ -15,7 +14,12 @@ class Utils implements UtilsImpl {
   String? _customSavePath;
   bool useSupportDir = false;
   final _storageCache = <String, StreamController<Map<String, dynamic>>>{};
-  final _fileCache = <String, File>{};
+
+  SharedPreferences? prefs;
+
+  Future<SharedPreferences> getSharedPreferences() async {
+    return await SharedPreferences.getInstance();
+  }
 
   @override
   void setCustomSavePath(String path) {
@@ -28,75 +32,21 @@ class Utils implements UtilsImpl {
     this.useSupportDir = useSupportDir;
   }
 
-  Future<String> getDatabasePath() async {
-    Directory directory;
-
-    if (Platform.isIOS) {
-      if (useSupportDir) {
-        directory = await getApplicationSupportDirectory();
-      } else {
-        directory = await getApplicationDocumentsDirectory();
-      }
-    } else if (Platform.isAndroid) {
-      directory = await getApplicationDocumentsDirectory();
-    }  else if (Platform.isWindows) {
-      directory = await getApplicationSupportDirectory();
-    } else {
-      // Add other platform-specific directory as needed
-      // throw UnsupportedError('This platform is not supported for databases.');
-      directory = Directory.current;
-    }
-    debugPrint(directory.path);
-
-    return directory.path;
-  }
-
   @override
-  Future<Map<String, dynamic>?> get(String path,
-      [bool? isCollection = false, List<List>? conditions]) async {
+  Future<Map<String, dynamic>?> get(String path, [bool? isCollection = false, List<List>? conditions]) async {
     // Fetch the documents for this collection
-    if (isCollection != null && isCollection == true) {
-      final dbPath = await getDatabasePath();
-      final fullPath = _customSavePath ?? dbPath;
-      final dir = Directory('$fullPath$path');
-      if (!dir.existsSync()) {
-        dir.createSync(recursive: true);
-      }
-      List<FileSystemEntity> entries =
-          dir.listSync(recursive: false).whereType<File>().toList();
-      if (conditions != null && conditions.first.isNotEmpty) {
-        return await _getAll(entries);
-        /*
-        // With conditions
-        entries.forEach((e) async {
-          final path = e.path.replaceAll(_docDir!.absolute.path, '');
-          final file = await _getFile(path);
-          _readFile(file!).then((data) {
-            if (data is Map<String, dynamic>) {
-              _data[path] = data;
-            }
-          });
-        });
-        return _data;
-        */
-      } else {
-        return await _getAll(entries);
-      }
-    } else {
-      // Reads the document referenced by this [DocumentRef].
-      final file = await _getFile(path);
-      final randomAccessFile = file!.openSync(mode: FileMode.append);
-      final data = await _readFile(randomAccessFile);
-      randomAccessFile.closeSync();
-      if (data is Map<String, dynamic>) {
-        final key = path.replaceAll(lastPathComponentRegEx, '');
-        // ignore: close_sinks
-        final storage = _storageCache.putIfAbsent(key, () => _newStream(key));
-        storage.add(data);
-        return data;
-      }
+
+    print('path ::: $path');
+
+    prefs = await getSharedPreferences();
+    final List<String>? items = prefs?.getStringList('items');
+    print('prefs ::: $items');
+    if( items != null ){
+      return await _getAll(items,path);
+    }else{
+      return null;
     }
-    return null;
+
   }
 
   @override
@@ -125,24 +75,17 @@ class Utils implements UtilsImpl {
     return storage.stream;
   }
 
-  Future<Map<String, dynamic>?> _getAll(List<FileSystemEntity> entries) async {
+  Future<Map<String, dynamic>?> _getAll(List<String> entries,String path) async {
+    print('_getAll ::: $entries');
     final items = <String, dynamic>{};
-    final dbPath = await getDatabasePath();
-    final fullPath = _customSavePath ?? dbPath;
-    final dir = Directory(fullPath);
-    await Future.forEach(entries, (FileSystemEntity e) async {
-      final path = e.path.replaceAll(dir.absolute.path, '');
-      final file = await _getFile(path);
-      final randomAccessFile = await file!.open(mode: FileMode.append);
-      final data = await _readFile(randomAccessFile);
-      await randomAccessFile.close();
-
-      if (data is Map<String, dynamic>) {
-        items[path] = data;
-      }
+    entries.forEach((element) {
+      String itemName = '$path$element';
+      final String? itemJson = prefs?.getString(itemName);
+      items[itemName] = itemJson;
     });
 
     if (items.isEmpty) return null;
+    print('items ::: $items');
     return items;
   }
 
@@ -150,7 +93,6 @@ class Utils implements UtilsImpl {
   StreamController<Map<String, dynamic>> _newStream(String path) {
     final storage = StreamController<Map<String, dynamic>>.broadcast();
     _initStream(storage, path);
-
     return storage;
   }
 
@@ -158,78 +100,82 @@ class Utils implements UtilsImpl {
     StreamController<Map<String, dynamic>> storage,
     String path,
   ) async {
-    final dbPath = await getDatabasePath();
-    final fullPath = _customSavePath ?? dbPath;
-    final dir = Directory('$fullPath$path');
-    try {
-      List<FileSystemEntity> entries =
-          dir.listSync(recursive: false).whereType<File>().toList();
-      for (var e in entries) {
-        final filePath = e.path.replaceAll(dir.absolute.path, '');
-        final file = await _getFile('$path$filePath');
-        final randomAccessFile = file!.openSync(mode: FileMode.append);
-        _readFile(randomAccessFile).then((data) {
-          randomAccessFile.closeSync();
-          if (data is Map<String, dynamic>) {
-            storage.add(data);
-          }
-        });
-      }
-    } catch (e) {
-      return e;
+
+    print('_initStream ::: $path');
+    prefs = await getSharedPreferences();
+    final List<String>? items = prefs?.getStringList('items');
+
+    if( items != null ){
+      items.forEach((element) {
+        String itemName = '$path$element';
+        final String? itemJson = prefs?.getString(itemName);
+        final Map<String, dynamic> itemMap = jsonDecode(itemJson!);
+        storage.add(itemMap);
+      });
     }
-  }
 
-  Future<dynamic> _readFile(RandomAccessFile file) async {
-    final length = file.lengthSync();
-    file.setPositionSync(0);
-    final buffer = Uint8List(length);
-    file.readIntoSync(buffer);
-    try {
-      final contentText = utf8.decode(buffer);
-      final data = json.decode(contentText) as Map<String, dynamic>;
-      return data;
-    } catch (e) {
-      return e;
-    }
-  }
-
-  Future<File?> _getFile(String path) async {
-    if (_fileCache.containsKey(path)) return _fileCache[path];
-
-    final fullPath = _customSavePath ?? await getDatabasePath();
-    final file = File(fullPath.endsWith(Platform.pathSeparator)
-        ? '$fullPath$path'
-        : '$fullPath${Platform.pathSeparator}$path');
-
-    if (!file.existsSync()) file.createSync(recursive: true);
-    _fileCache.putIfAbsent(path, () => file);
-
-    return file;
   }
 
   Future _writeFile(Map<String, dynamic> data, String path) async {
-    
+
+    print('_writeFile ::: $path ::: $data');
+
+    prefs = await getSharedPreferences();
+    List<String>? items = prefs?.getStringList('items');
+    String itemName = path.split('/').last;
+
+    if( items != null ){
+      if( !items.contains(itemName) ){
+        items.add(itemName);
+        prefs?.remove('items');
+        prefs?.setStringList('items', items);
+      }
+    }else{
+      prefs?.setStringList('items', [itemName]);
+    }
+
+    await prefs?.setString(path, jsonEncode(data));
+
+    final key = path.replaceAll(lastPathComponentRegEx, '');
+    final storage = _storageCache.putIfAbsent(key, () => _newStream(key));
+    storage.add(data);
+
   }
 
   Future _deleteFile(String path) async {
-    final fullPath = _customSavePath ?? await getDatabasePath();
-    final file = File(fullPath.endsWith(Platform.pathSeparator)
-        ? '$fullPath$path'
-        : '$fullPath${Platform.pathSeparator}$path');
 
-    if (file.existsSync()) {
-      file.deleteSync();
-      _fileCache.remove(path);
+    print('_deleteFile ::: $path');
+
+    prefs = await getSharedPreferences();
+    List<String>? items = prefs?.getStringList('items');
+
+    String itemName = path.split('/').last;
+
+    if( items != null && items.contains(itemName) ){
+      items.remove(itemName);
+      prefs?.remove('items');
+      prefs?.setStringList('items', items);
     }
+
+    await prefs?.remove(path);
+
   }
 
   Future _deleteDirectory(String path) async {
-    final fullPath = _customSavePath ?? await getDatabasePath();
-    final dir = Directory('$fullPath$path');
-    if (dir.existsSync()) {
-      dir.deleteSync(recursive: true);
-      _fileCache.removeWhere((key, value) => key.startsWith(path));
+
+    print('_deleteDirectory ::: $path');
+
+    prefs = await getSharedPreferences();
+    List<String>? items = prefs?.getStringList('items');
+
+    if( items != null ){
+      items.forEach((element) {
+        String itemName = '$path$element';
+        prefs?.remove(itemName);
+      });
     }
+
+    prefs?.remove('items');
+
   }
 }
