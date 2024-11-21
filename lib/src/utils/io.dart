@@ -36,11 +36,11 @@ class Utils implements UtilsImpl {
   Future<Map<String, dynamic>?> get(String path, [bool? isCollection = false, List<List>? conditions]) async {
     // Fetch the documents for this collection
 
-    print('path ::: $path');
+    // print('path ::: $path');
 
     prefs = await getSharedPreferences();
     final List<String>? items = prefs?.getStringList('items');
-    print('prefs ::: $items');
+    // print('prefs ::: $items');
     if( items != null ){
       return await _getAll(items,path);
     }else{
@@ -76,7 +76,7 @@ class Utils implements UtilsImpl {
   }
 
   Future<Map<String, dynamic>?> _getAll(List<String> entries,String path) async {
-    print('_getAll ::: $entries');
+    // print('_getAll ::: $entries');
     final items = <String, dynamic>{};
     entries.forEach((element) {
       String itemName = '$path$element';
@@ -88,7 +88,7 @@ class Utils implements UtilsImpl {
     });
 
     if (items.isEmpty) return null;
-    print('items ::: $items');
+    // print('items ::: $items');
     return items;
   }
 
@@ -123,7 +123,7 @@ class Utils implements UtilsImpl {
 
   Future _writeFile(Map<String, dynamic> data, String path) async {
 
-    print('_writeFile ::: $path ::: $data');
+    // print('_writeFile ::: $path ::: $data');
 
     prefs = await getSharedPreferences();
     List<String>? items = prefs?.getStringList('items');
@@ -149,7 +149,7 @@ class Utils implements UtilsImpl {
 
   Future _deleteFile(String path) async {
 
-    print('_deleteFile ::: $path');
+    // print('_deleteFile ::: $path');
 
     prefs = await getSharedPreferences();
     List<String>? items = prefs?.getStringList('items');
