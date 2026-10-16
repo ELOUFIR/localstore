@@ -17,6 +17,13 @@ class Utils implements UtilsImpl {
   final _storageCache = <String, StreamController<Map<String, dynamic>>>{};
   final _fileCache = <String, File>{};
 
+  // Windows : a read or a write of another handle makes lockSync / readIntoSync fail at once (errno 33).
+  // They are tried again, and the handle is always closed, so a failure never leaves a file locked
+  static const _attempts = 3;
+  // Last write started for each path. Numbers are never reused, so an old retry never matches a newer write
+  final _writeVersion = <String, int>{};
+  var _writeCount = 0;
+
   @override
   void setCustomSavePath(String path) {
     _customSavePath = path;
@@ -85,9 +92,7 @@ class Utils implements UtilsImpl {
     } else {
       // Reads the document referenced by this [DocumentRef].
       final file = await _getFile(path);
-      final randomAccessFile = file!.openSync(mode: FileMode.append);
-      final data = await _readFile(randomAccessFile);
-      randomAccessFile.closeSync();
+      final data = await _readPath(file!);
       if (data is Map<String, dynamic>) {
         final key = path.replaceAll(lastPathComponentRegEx, '');
         // ignore: close_sinks
@@ -133,9 +138,7 @@ class Utils implements UtilsImpl {
     await Future.forEach(entries, (FileSystemEntity e) async {
       final path = e.path.replaceAll(dir.absolute.path, '');
       final file = await _getFile(path);
-      final randomAccessFile = await file!.open(mode: FileMode.append);
-      final data = await _readFile(randomAccessFile);
-      await randomAccessFile.close();
+      final data = await _readPath(file!);
 
       if (data is Map<String, dynamic>) {
         items[path] = data;
@@ -167,9 +170,7 @@ class Utils implements UtilsImpl {
       for (var e in entries) {
         final filePath = e.path.replaceAll(dir.absolute.path, '');
         final file = await _getFile('$path$filePath');
-        final randomAccessFile = file!.openSync(mode: FileMode.append);
-        _readFile(randomAccessFile).then((data) {
-          randomAccessFile.closeSync();
+        _readPath(file!).then((data) {
           if (data is Map<String, dynamic>) {
             storage.add(data);
           }
@@ -177,6 +178,23 @@ class Utils implements UtilsImpl {
       }
     } catch (e) {
       return e;
+    }
+  }
+
+  Future<dynamic> _readPath(File file) async {
+    for (var attempt = 1;; attempt++) {
+      RandomAccessFile? randomAccessFile;
+      try {
+        randomAccessFile = file.openSync(mode: FileMode.append);
+        return await _readFile(randomAccessFile);
+      } on FileSystemException {
+        if (attempt >= _attempts) rethrow;
+      } finally {
+        try {
+          randomAccessFile?.closeSync();
+        } on FileSystemException catch (_) {}
+      }
+      await Future.delayed(Duration(milliseconds: 100 * attempt));
     }
   }
 
@@ -211,15 +229,39 @@ class Utils implements UtilsImpl {
   Future _writeFile(Map<String, dynamic> data, String path) async {
     final serialized = json.encode(data);
     final buffer = utf8.encode(serialized);
+    // A retry stops when a newer write of the same document came : it holds the right data
+    final version = ++_writeCount;
+    _writeVersion[path] = version;
     final file = await _getFile(path);
-    final randomAccessFile = file!.openSync(mode: FileMode.append);
 
-    randomAccessFile.lockSync();
-    randomAccessFile.setPositionSync(0);
-    randomAccessFile.writeFromSync(buffer);
-    randomAccessFile.truncateSync(buffer.length);
-    randomAccessFile.unlockSync();
-    randomAccessFile.closeSync();
+    for (var attempt = 1;; attempt++) {
+      if (attempt > 1 && _writeVersion[path] != version) return;
+      RandomAccessFile? randomAccessFile;
+      try {
+        randomAccessFile = file!.openSync(mode: FileMode.append);
+        randomAccessFile.lockSync();
+        try {
+          randomAccessFile.setPositionSync(0);
+          randomAccessFile.writeFromSync(buffer);
+          randomAccessFile.truncateSync(buffer.length);
+        } finally {
+          randomAccessFile.unlockSync();
+        }
+        break;
+      } on FileSystemException {
+        if (attempt >= _attempts) {
+          if (_writeVersion[path] == version) _writeVersion.remove(path);
+          rethrow;
+        }
+      } finally {
+        // If unlockSync failed, closing the handle releases the lock
+        try {
+          randomAccessFile?.closeSync();
+        } on FileSystemException catch (_) {}
+      }
+      await Future.delayed(Duration(milliseconds: 100 * attempt));
+    }
+    if (_writeVersion[path] == version) _writeVersion.remove(path);
 
     final key = path.replaceAll(lastPathComponentRegEx, '');
     // ignore: close_sinks
